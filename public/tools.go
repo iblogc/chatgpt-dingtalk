@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 	"time"
@@ -23,7 +22,7 @@ func WriteToFile(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(path, data, 0755)
+	err = os.WriteFile(path, data, 0755)
 	if err != nil {
 		return err
 	}
@@ -122,6 +121,23 @@ func JudgeVipUsers(s string) bool {
 
 func GetReadTime(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05")
+}
+
+func CheckRequestWithCredentials(ts, sg string) (clientId string, pass bool) {
+	clientId, pass = "", false
+	credentials := Config.Credentials
+	if len(credentials) == 0 || len(Config.AllowOutgoingGroups) == 0 {
+		return "", true
+	}
+	for _, credential := range Config.Credentials {
+		stringToSign := fmt.Sprintf("%s\n%s", ts, credential.ClientSecret)
+		mac := hmac.New(sha256.New, []byte(credential.ClientSecret))
+		_, _ = mac.Write([]byte(stringToSign))
+		if base64.StdEncoding.EncodeToString(mac.Sum(nil)) == sg {
+			return credential.ClientID, true
+		}
+	}
+	return
 }
 
 func CheckRequest(ts, sg string) bool {

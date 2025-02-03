@@ -6,8 +6,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/eryajf/chatgpt-dingtalk/public"
 	openai "github.com/sashabaranov/go-openai"
+
+	"github.com/eryajf/chatgpt-dingtalk/public"
 )
 
 type ChatGPT struct {
@@ -39,10 +40,12 @@ func New(userId string) *ChatGPT {
 	if public.Config.AzureOn {
 		config = openai.DefaultAzureConfig(
 			public.Config.AzureOpenAIToken,
-			"https://"+public.Config.AzureResourceName+".openai."+
-				"azure.com/",
-			public.Config.AzureDeploymentName,
+			"https://"+public.Config.AzureResourceName+".openai.azure.com",
 		)
+		config.APIVersion = public.Config.AzureApiVersion
+		config.AzureModelMapperFunc = func(model string) string {
+			return public.Config.AzureDeploymentName
+		}
 	} else {
 		if public.Config.HttpProxy != "" {
 			config.HTTPClient.Transport = &http.Transport{
@@ -60,9 +63,9 @@ func New(userId string) *ChatGPT {
 		client:         openai.NewClientWithConfig(config),
 		ctx:            ctx,
 		userId:         userId,
-		maxQuestionLen: 2048, // 最大问题长度
-		maxAnswerLen:   2048, // 最大答案长度
-		maxText:        4096, // 最大文本 = 问题 + 回答, 接口限制
+		maxQuestionLen: public.Config.MaxQuestionLen, // 最大问题长度
+		maxAnswerLen:   public.Config.MaxAnswerLen,   // 最大答案长度
+		maxText:        public.Config.MaxText,        // 最大文本 = 问题 + 回答, 接口限制
 		timeOut:        public.Config.SessionTimeout,
 		doneChan:       timeOutChan,
 		cancel: func() {

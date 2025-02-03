@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"strconv"
@@ -10,9 +9,15 @@ import (
 	"sync"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/eryajf/chatgpt-dingtalk/pkg/logger"
-	"gopkg.in/yaml.v2"
 )
+
+type Credential struct {
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+}
 
 // Configuration 项目配置
 type Configuration struct {
@@ -20,12 +25,22 @@ type Configuration struct {
 	LogLevel string `yaml:"log_level"`
 	// gpt apikey
 	ApiKey string `yaml:"api_key"`
+	// 运行模式
+	RunMode string `yaml:"run_mode"`
 	// 请求的 URL 地址
 	BaseURL string `yaml:"base_url"`
 	// 使用模型
 	Model string `yaml:"model"`
+	// 使用绘画模型
+	ImageModel string `yaml:"image_model"`
 	// 会话超时时间
 	SessionTimeout time.Duration `yaml:"session_timeout"`
+	// 最大问题长度
+	MaxQuestionLen int `yaml:"max_question_len"`
+	// 最大答案长度
+	MaxAnswerLen int `yaml:"max_answer_len"`
+	// 最大文本 = 问题 + 回答, 接口限制
+	MaxText int `yaml:"max_text"`
 	// 默认对话模式
 	DefaultMode string `yaml:"default_mode"`
 	// 代理地址
@@ -62,17 +77,21 @@ type Configuration struct {
 	AzureResourceName   string `yaml:"azure_resource_name"`
 	AzureDeploymentName string `yaml:"azure_deployment_name"`
 	AzureOpenAIToken    string `yaml:"azure_openai_token"`
+	// 钉钉应用鉴权凭据
+	Credentials []Credential `yaml:"credentials"`
 }
 
-var config *Configuration
-var once sync.Once
+var (
+	config *Configuration
+	once   sync.Once
+)
 
 // LoadConfig 加载配置
 func LoadConfig() *Configuration {
 	once.Do(func() {
 		// 从文件中读取
 		config = &Configuration{}
-		data, err := ioutil.ReadFile("config.yml")
+		data, err := os.ReadFile("config.yml")
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -89,6 +108,10 @@ func LoadConfig() *Configuration {
 		apiKey := os.Getenv("APIKEY")
 		if apiKey != "" {
 			config.ApiKey = apiKey
+		}
+		runMode := os.Getenv("RUN_MODE")
+		if runMode != "" {
+			config.RunMode = runMode
 		}
 		baseURL := os.Getenv("BASE_URL")
 		if baseURL != "" {
@@ -108,6 +131,21 @@ func LoadConfig() *Configuration {
 			config.SessionTimeout = time.Duration(duration) * time.Second
 		} else {
 			config.SessionTimeout = time.Duration(config.SessionTimeout) * time.Second
+		}
+		maxQuestionLen := os.Getenv("MAX_QUESTION_LEN")
+		if maxQuestionLen != "" {
+			newLen, _ := strconv.Atoi(maxQuestionLen)
+			config.MaxQuestionLen = newLen
+		}
+		maxAnswerLen := os.Getenv("MAX_ANSWER_LEN")
+		if maxAnswerLen != "" {
+			newLen, _ := strconv.Atoi(maxAnswerLen)
+			config.MaxAnswerLen = newLen
+		}
+		maxText := os.Getenv("MAX_TEXT")
+		if maxText != "" {
+			newLen, _ := strconv.Atoi(maxText)
+			config.MaxText = newLen
 		}
 		defaultMode := os.Getenv("DEFAULT_MODE")
 		if defaultMode != "" {
@@ -191,11 +229,24 @@ func LoadConfig() *Configuration {
 			config.AzureOpenAIToken = azureOpenaiToken
 		}
 
+		credentials := os.Getenv("DINGTALK_CREDENTIALS")
+		if credentials != "" {
+			config.Credentials = []Credential{}
+			for _, idSecret := range strings.Split(credentials, ",") {
+				items := strings.SplitN(idSecret, ":", 2)
+				if len(items) == 2 {
+					config.Credentials = append(config.Credentials, Credential{ClientID: items[0], ClientSecret: items[1]})
+				}
+			}
+		}
 	})
 
 	// 一些默认值
 	if config.LogLevel == "" {
 		config.LogLevel = "info"
+	}
+	if config.RunMode == "" {
+		config.RunMode = "http"
 	}
 	if config.Model == "" {
 		config.Model = "gpt-3.5-turbo"
@@ -209,11 +260,19 @@ func LoadConfig() *Configuration {
 	if config.ChatType == "" {
 		config.ChatType = "0"
 	}
-	if config.ApiKey == "" {
-		logger.Fatal("config err: api key required")
+	if !config.AzureOn {
+		if config.ApiKey == "" {
+			panic("config err: api key required")
+		}
 	}
-	if config.ServiceURL == "" {
-		logger.Fatal("config err: service url required")
+	if config.MaxQuestionLen == 0 {
+		config.MaxQuestionLen = 4096
+	}
+	if config.MaxAnswerLen == 0 {
+		config.MaxAnswerLen = 4096
+	}
+	if config.MaxText == 0 {
+		config.MaxText = 4096
 	}
 	return config
 }
